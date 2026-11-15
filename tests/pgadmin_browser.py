@@ -66,6 +66,9 @@ def main():
             print("Static failures:", failures)
             print("Browser errors:", errors)
             print("Visible page:", page.locator("body").inner_text()[:4000])
+            print("Document:", page.content()[:20000])
+            check = page.request.get(page.url)
+            print("Reload response:", check.status, check.headers, check.text()[:20000])
             page.screenshot(path="test-results/pgadmin-final.png", full_page=True)
             browser.close()
 
