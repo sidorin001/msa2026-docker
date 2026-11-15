@@ -37,8 +37,6 @@ def main():
             if close.count() and close.first.is_visible():
                 close.first.click()
             group = page.get_by_text("MSA", exact=True)
-            if not group.count():
-                page.get_by_text("Servers", exact=True).first.dblclick()
             group.first.wait_for(state="visible")
             group.first.dblclick()
             for name, password, database in [
@@ -48,20 +46,15 @@ def main():
                 page.get_by_text(name, exact=True).first.dblclick()
                 password_input = page.locator('input[type="password"]:visible')
                 password_input.last.fill(password)
-                page.get_by_role("button", name="OK", exact=True).last.click()
+                page.get_by_text("OK", exact=True).last.click()
                 # The browser tree must display the live database list after connection.
-                page.get_by_text("Databases", exact=False).filter(has_text="Databases").first.wait_for()
-                # Expand the selected server's Databases node using its tree ancestry.
-                server_label = page.get_by_text(name, exact=True).first
-                server_node = server_label.locator('xpath=ancestor::*[@role="treeitem"][1]')
-                if server_node.count():
-                    databases = server_node.get_by_text("Databases", exact=False).first
-                else:
-                    databases = page.get_by_text("Databases", exact=False).last
+                # Only one server is expanded at a time (the tree uses flat virtual rows).
+                databases = page.get_by_text("Databases", exact=True).first
                 databases.dblclick()
                 expect(page.get_by_text(database, exact=True).first).to_be_visible()
                 page.get_by_text(database, exact=True).first.click()
                 page.screenshot(path=f"test-results/{database}.png", full_page=True)
+                page.get_by_text(name, exact=True).first.dblclick()
             assert not failures, failures
             assert "/pgadmin/" in page.url
             print("PASS: pgAdmin proxy, login, static assets and both live databases")
