@@ -16,7 +16,10 @@ def main():
         failures = []
         errors = []
         page.on("pageerror", lambda err: errors.append(str(err)))
-        page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
+        def console_message(msg):
+            for arg in msg.args:
+                errors.append(arg.evaluate("value => JSON.stringify(value, (key, v) => v instanceof Error ? {message:v.message, stack:v.stack} : v)"))
+        page.on("console", console_message)
         page.on("requestfailed", lambda req: errors.append(req.url + " " + str(req.failure)))
         page.on("response", lambda r: failures.append(r.url) if r.status >= 400 and
                 r.request.resource_type in ("script", "stylesheet") else None)
@@ -66,9 +69,6 @@ def main():
             print("Static failures:", failures)
             print("Browser errors:", errors)
             print("Visible page:", page.locator("body").inner_text()[:4000])
-            print("Document:", page.content()[:20000])
-            check = page.request.get(page.url)
-            print("Reload response:", check.status, check.headers, check.text()[:20000])
             page.screenshot(path="test-results/pgadmin-final.png", full_page=True)
             browser.close()
 
