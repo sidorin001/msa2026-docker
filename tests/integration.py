@@ -55,6 +55,9 @@ def main():
             result = sql(db, statement, app=True, check=False)
             assert result.returncode != 0 and "permission denied" in result.stderr, statement
         assert sql(db, "SELECT rolsuper FROM pg_roles WHERE rolname=current_user", app=True).stdout.strip() == "f"
+        for other in ["postgres", "template1"]:
+            assert sql(db, f"SELECT has_database_privilege(current_user, '{other}', 'CONNECT')", app=True).stdout.strip() == "f"
+        assert sql(db, "SELECT has_database_privilege(current_user, current_database(), 'TEMP')", app=True).stdout.strip() == "f"
     try:
         compose("stop", "service2-v1")
         request(BASE, "/api/v1/groups")
