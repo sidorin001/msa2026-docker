@@ -63,6 +63,13 @@ def main():
     finally:
         compose("start", "service2-v1")
         wait_ready(BASE)
+    try:
+        compose("pause", "service2-v1")
+        request(BASE, "/api/v1/groups")
+        expect_one_of("/api/v1/groups/1/items", {504})
+    finally:
+        compose("unpause", "service2-v1")
+        wait_ready(BASE)
     for db, affected, independent in [("db1", "groups", "items"), ("db2", "items", "groups")]:
         try:
             compose("stop", db)

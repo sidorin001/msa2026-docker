@@ -57,7 +57,8 @@ int main() {
             int previous = 0;
             if (valid) for (const auto& item : items) {
                 if (!item.is_object() || !item.contains("id") || !item["id"].is_number_integer() ||
-                    !item.contains("group_id") || item["group_id"] != id ||
+                    item["id"] > 2147483647 ||
+                    !item.contains("group_id") || !item["group_id"].is_number_integer() || item["group_id"] != id ||
                     !item.contains("name") || !item["name"].is_string() || item["id"] <= previous) {
                     valid = false; break;
                 }

@@ -14,6 +14,10 @@ def main():
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
         page.set_default_timeout(30000)
         failures = []
+        errors = []
+        page.on("pageerror", lambda err: errors.append(str(err)))
+        page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
+        page.on("requestfailed", lambda req: errors.append(req.url + " " + str(req.failure)))
         page.on("response", lambda r: failures.append(r.url) if r.status >= 400 and
                 r.request.resource_type in ("script", "stylesheet") else None)
         try:
@@ -58,6 +62,10 @@ def main():
             assert "/pgadmin/" in page.url
             print("PASS: pgAdmin proxy, login, static assets and both live databases")
         finally:
+            print("Browser URL:", page.url)
+            print("Static failures:", failures)
+            print("Browser errors:", errors)
+            print("Visible page:", page.locator("body").inner_text()[:4000])
             page.screenshot(path="test-results/pgadmin-final.png", full_page=True)
             browser.close()
 
