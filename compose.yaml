@@ -1,0 +1,142 @@
+name: msa2026-docker
+
+x-api-environment: &api-environment
+  DB_PORT: "5432"
+  HTTP_PORT: "8080"
+  DB_CONNECT_TIMEOUT_SECONDS: ${DB_CONNECT_TIMEOUT_SECONDS:-2}
+  DB_STATEMENT_TIMEOUT_MS: ${DB_STATEMENT_TIMEOUT_MS:-3000}
+
+x-api-health: &api-health
+  test: [CMD, curl, --fail, --silent, --max-time, "6", "http://localhost:8080/ready"]
+  interval: 10s
+  timeout: 7s
+  retries: 10
+  start_period: 15s
+
+services:
+  db1:
+    image: postgres:17.6-bookworm
+    environment:
+      POSTGRES_DB: ${DB1_NAME:-groups_db}
+      POSTGRES_PASSWORD: ${DB1_ADMIN_PASSWORD:?Set DB1_ADMIN_PASSWORD in .env}
+      APP_USER: ${DB1_APP_USER:-groups_app}
+      APP_PASSWORD: ${DB1_APP_PASSWORD:?Set DB1_APP_PASSWORD in .env}
+    volumes:
+      - db1-data:/var/lib/postgresql/data
+      - ./db1/init:/docker-entrypoint-initdb.d:ro
+    networks: [db1-net]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  db2:
+    image: postgres:17.6-bookworm
+    environment:
+      POSTGRES_DB: ${DB2_NAME:-items_db}
+      POSTGRES_PASSWORD: ${DB2_ADMIN_PASSWORD:?Set DB2_ADMIN_PASSWORD in .env}
+      APP_USER: ${DB2_APP_USER:-items_app}
+      APP_PASSWORD: ${DB2_APP_PASSWORD:?Set DB2_APP_PASSWORD in .env}
+    volumes:
+      - db2-data:/var/lib/postgresql/data
+      - ./db2/init:/docker-entrypoint-initdb.d:ro
+    networks: [db2-net]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  service1-v1:
+    build:
+      context: .
+      dockerfile: service1/Dockerfile
+    environment:
+      <<: *api-environment
+      DB_HOST: db1
+      DB_NAME: ${DB1_NAME:-groups_db}
+      DB_USER: ${DB1_APP_USER:-groups_app}
+      DB_PASSWORD: ${DB1_APP_PASSWORD:?Set DB1_APP_PASSWORD in .env}
+      SERVICE2_BASE_URL: ${SERVICE2_BASE_URL:-http://service2-v1:8080}
+      HTTP_CONNECT_TIMEOUT_MS: ${HTTP_CONNECT_TIMEOUT_MS:-2000}
+      HTTP_READ_TIMEOUT_MS: ${HTTP_READ_TIMEOUT_MS:-5000}
+    depends_on:
+      db1:
+        condition: service_healthy
+    networks: [api, db1-net]
+    healthcheck: *api-health
+    init: true
+    restart: unless-stopped
+
+  service2-v1:
+    build:
+      context: .
+      dockerfile: service2/Dockerfile
+    environment:
+      <<: *api-environment
+      DB_HOST: db2
+      DB_NAME: ${DB2_NAME:-items_db}
+      DB_USER: ${DB2_APP_USER:-items_app}
+      DB_PASSWORD: ${DB2_APP_PASSWORD:?Set DB2_APP_PASSWORD in .env}
+    depends_on:
+      db2:
+        condition: service_healthy
+    networks: [api, db2-net]
+    healthcheck: *api-health
+    init: true
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4:9.8
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:?Set PGADMIN_DEFAULT_PASSWORD in .env}
+      PGADMIN_CONFIG_SERVER_MODE: "True"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "False"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+    networks: [admin, db1-net, db2-net]
+    depends_on:
+      db1:
+        condition: service_healthy
+      db2:
+        condition: service_healthy
+    restart: unless-stopped
+
+  gateway:
+    image: caddy:2.10.2-alpine
+    ports:
+      - "${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-8080}:80"
+    volumes:
+      - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [api, admin]
+    depends_on:
+      service1-v1:
+        condition: service_healthy
+      service2-v1:
+        condition: service_healthy
+      pgadmin:
+        condition: service_started
+    restart: unless-stopped
+
+networks:
+  api: {}
+  admin: {}
+  db1-net:
+    internal: true
+  db2-net:
+    internal: true
+
+volumes:
+  db1-data: {}
+  db2-data: {}
+  pgadmin-data: {}
+  caddy-data: {}
+  caddy-config: {}

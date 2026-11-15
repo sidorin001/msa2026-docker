@@ -1,0 +1,6 @@
+{
+  "Servers": {
+    "1": {"Name": "DB1 — Groups", "Group": "MSA", "Host": "db1", "Port": 5432, "MaintenanceDB": "postgres", "Username": "postgres", "SSLMode": "prefer"},
+    "2": {"Name": "DB2 — Items", "Group": "MSA", "Host": "db2", "Port": 5432, "MaintenanceDB": "postgres", "Username": "postgres", "SSLMode": "prefer"}
+  }
+}

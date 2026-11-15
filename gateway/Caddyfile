@@ -1,0 +1,33 @@
+{
+    admin off
+}
+
+:80 {
+    @groups path /api/v1/groups /api/v1/groups/*
+    handle @groups {
+        reverse_proxy service1-v1:8080 {
+            transport http {
+                dial_timeout 3s
+                response_header_timeout 20s
+            }
+        }
+    }
+    @items path /api/v1/items /api/v1/items/*
+    handle @items {
+        reverse_proxy service2-v1:8080 {
+            transport http {
+                dial_timeout 3s
+                response_header_timeout 20s
+            }
+        }
+    }
+    redir /pgadmin /pgadmin/ 308
+    handle_path /pgadmin/* {
+        reverse_proxy pgadmin:80 {
+            header_up X-Script-Name /pgadmin
+        }
+    }
+    handle {
+        respond "Not Found" 404
+    }
+}

@@ -1,0 +1,8 @@
+.env
+build/
+**/build/
+__pycache__/
+*.pyc
+test-results/
+playwright-report/
+.local/
