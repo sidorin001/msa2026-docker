@@ -53,6 +53,7 @@ def main():
                 databases.dblclick()
                 expect(page.get_by_text(database, exact=True).first).to_be_visible()
                 page.get_by_text(database, exact=True).first.click()
+                expect(page.get_by_text(f"{name}/{database} - Database connected.", exact=True)).to_be_visible()
                 page.screenshot(path=f"test-results/{database}.png", full_page=True)
                 page.get_by_text(name, exact=True).first.dblclick()
             assert not failures, failures
