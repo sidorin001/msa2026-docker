@@ -11,7 +11,8 @@ def main():
     Path("test-results").mkdir(exist_ok=True)
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1440, "height": 1000})
+        # GitHub runner's POSIX locale can produce an invalid Intl language tag.
+        page = browser.new_page(viewport={"width": 1440, "height": 1000}, locale="en-US")
         page.set_default_timeout(30000)
         failures = []
         errors = []
