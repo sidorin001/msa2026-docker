@@ -1,0 +1,17 @@
+services:
+  service2-v1-a:
+    entrypoint: [/opt/venv/bin/python, /test-fixtures/readiness_fixture.py]
+    environment:
+      PYTHONPATH: /app
+      READINESS_FAILURE_FILE: /test-state/a
+    volumes:
+      - ./tests:/test-fixtures:ro
+      - ./.local/readiness:/test-state:ro
+  service2-v1-b:
+    entrypoint: [/opt/venv/bin/python, /test-fixtures/readiness_fixture.py]
+    environment:
+      PYTHONPATH: /app
+      READINESS_FAILURE_FILE: /test-state/b
+    volumes:
+      - ./tests:/test-fixtures:ro
+      - ./.local/readiness:/test-state:ro

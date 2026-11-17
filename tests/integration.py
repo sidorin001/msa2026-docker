@@ -36,10 +36,11 @@ def main():
     run(BASE)
     config = json.loads(compose("config", "--format", "json").stdout)
     services = config["services"]
-    assert len(services) == 6
+    assert len(services) == 7
     assert all(not value.get("ports") for name, value in services.items() if name != "gateway")
     assert len(services["gateway"]["ports"]) == 1
-    for api, own, other in [("service1-v1", "db1", "db2"), ("service2-v1", "db2", "db1")]:
+    assert services["service2-v1-a"]["image"] == services["service2-v1-b"]["image"]
+    for api, own, other in [("service1-v1", "db1", "db2"), ("service2-v1-a", "db2", "db1"), ("service2-v1-b", "db2", "db1")]:
         assert own + "-net" in services[api]["networks"]
         assert other + "-net" not in services[api]["networks"]
         assert services[api]["environment"]["DB_HOST"] == own
@@ -58,25 +59,13 @@ def main():
         for other in ["postgres", "template1"]:
             assert sql(db, f"SELECT has_database_privilege(current_user, '{other}', 'CONNECT')", app=True).stdout.strip() == "f"
         assert sql(db, "SELECT has_database_privilege(current_user, current_database(), 'TEMP')", app=True).stdout.strip() == "f"
-    try:
-        compose("stop", "service2-v1")
-        request(BASE, "/api/v1/groups")
-        request(BASE, "/api/v1/groups/999/items", 404)
-        expect_one_of("/api/v1/groups/1/items", {502, 504})
-    finally:
-        compose("start", "service2-v1")
-        wait_ready(BASE)
-    try:
-        compose("pause", "service2-v1")
-        request(BASE, "/api/v1/groups")
-        expect_one_of("/api/v1/groups/1/items", {504})
-    finally:
-        compose("unpause", "service2-v1")
-        wait_ready(BASE)
     for db, affected, independent in [("db1", "groups", "items"), ("db2", "items", "groups")]:
         try:
             compose("stop", db)
-            request(BASE, f"/api/v1/{affected}", 503)
+            if db == "db1":
+                request(BASE, "/api/v1/groups", 503)
+            else:
+                expect_one_of("/api/v1/items", {502, 503})
             request(BASE, f"/api/v1/{independent}")
             if db == "db2":
                 request(BASE, "/api/v1/groups/1/items", 502)

@@ -30,10 +30,12 @@ jobs:
           docker compose config --quiet
           docker compose build
           docker compose run --rm --no-deps gateway caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-      - name: Start six services
+      - name: Start seven containers
         run: docker compose up -d --wait --wait-timeout 180
       - name: API and lifecycle acceptance
         run: python tests/integration.py
+      - name: Replica balancing and readiness acceptance
+        run: python tests/replicas.py
       - name: Install browser test dependencies
         run: |
           pip install playwright==1.56.0
@@ -44,7 +46,7 @@ jobs:
         if: always()
         run: |
           docker compose ps
-          docker compose logs --no-color --tail 100 service1-v1 service2-v1 gateway pgadmin
+          docker compose logs --no-color --tail 100 service1-v1 service2-v1-a service2-v1-b gateway pgadmin
       - uses: actions/upload-artifact@v4
         if: always()
         with:

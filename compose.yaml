@@ -13,6 +13,23 @@ x-api-health: &api-health
   retries: 10
   start_period: 15s
 
+x-service2-environment: &service2-environment
+  <<: *api-environment
+  DB_HOST: db2
+  DB_NAME: ${DB2_NAME:-items_db}
+  DB_USER: ${DB2_APP_USER:-items_app}
+  DB_PASSWORD: ${DB2_APP_PASSWORD:?Set DB2_APP_PASSWORD in .env}
+
+x-service2: &service2
+  image: msa2026-service2:local
+  depends_on:
+    db2:
+      condition: service_healthy
+  networks: [api, db2-net]
+  healthcheck: *api-health
+  init: true
+  restart: unless-stopped
+
 services:
   db1:
     image: postgres:17.6-bookworm
@@ -60,9 +77,9 @@ services:
       DB_NAME: ${DB1_NAME:-groups_db}
       DB_USER: ${DB1_APP_USER:-groups_app}
       DB_PASSWORD: ${DB1_APP_PASSWORD:?Set DB1_APP_PASSWORD in .env}
-      SERVICE2_BASE_URL: ${SERVICE2_BASE_URL:-http://service2-v1:8080}
+      SERVICE2_BASE_URL: ${SERVICE2_BASE_URL:-http://gateway:80}
       HTTP_CONNECT_TIMEOUT_MS: ${HTTP_CONNECT_TIMEOUT_MS:-2000}
-      HTTP_READ_TIMEOUT_MS: ${HTTP_READ_TIMEOUT_MS:-5000}
+      HTTP_READ_TIMEOUT_MS: ${HTTP_READ_TIMEOUT_MS:-10000}
     depends_on:
       db1:
         condition: service_healthy
@@ -71,23 +88,20 @@ services:
     init: true
     restart: unless-stopped
 
-  service2-v1:
+  service2-v1-a:
+    <<: *service2
     build:
       context: .
       dockerfile: service2/Dockerfile
     environment:
-      <<: *api-environment
-      DB_HOST: db2
-      DB_NAME: ${DB2_NAME:-items_db}
-      DB_USER: ${DB2_APP_USER:-items_app}
-      DB_PASSWORD: ${DB2_APP_PASSWORD:?Set DB2_APP_PASSWORD in .env}
-    depends_on:
-      db2:
-        condition: service_healthy
-    networks: [api, db2-net]
-    healthcheck: *api-health
-    init: true
-    restart: unless-stopped
+      <<: *service2-environment
+      INSTANCE_ID: service2-v1-a
+
+  service2-v1-b:
+    <<: *service2
+    environment:
+      <<: *service2-environment
+      INSTANCE_ID: service2-v1-b
 
   pgadmin:
     image: dpage/pgadmin4:9.8
@@ -120,7 +134,9 @@ services:
     depends_on:
       service1-v1:
         condition: service_healthy
-      service2-v1:
+      service2-v1-a:
+        condition: service_healthy
+      service2-v1-b:
         condition: service_healthy
       pgadmin:
         condition: service_started

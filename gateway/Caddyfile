@@ -14,10 +14,17 @@
     }
     @items path /api/v1/items /api/v1/items/*
     handle @items {
-        reverse_proxy service2-v1:8080 {
+        reverse_proxy service2-v1-a:8080 service2-v1-b:8080 {
+            lb_policy round_robin
+            health_uri /ready
+            health_status 200
+            health_interval 5s
+            health_timeout 2s
+            health_fails 1
+            health_passes 2
             transport http {
-                dial_timeout 3s
-                response_header_timeout 20s
+                dial_timeout 2s
+                response_header_timeout 5s
             }
         }
     }

@@ -1,18 +1,18 @@
-FROM debian:bookworm-20250908-slim AS build
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates cmake g++ make libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-WORKDIR /src
-COPY common/ common/
-COPY service2/ service2/
-RUN cmake -S service2 -B build -DCMAKE_BUILD_TYPE=Release \
-    && cmake --build build --parallel 2
+FROM python:3.12.8-slim-bookworm AS build
+WORKDIR /build
+COPY service2/requirements.txt .
+RUN pip wheel --no-cache-dir --only-binary=:all: --wheel-dir /wheels -r requirements.txt \
+    && python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt
 
-FROM debian:bookworm-20250908-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends libpq5 curl \
+FROM python:3.12.8-slim-bookworm AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --no-create-home app
-COPY --from=build /src/build/service2 /usr/local/bin/service2
+COPY --from=build /opt/venv /opt/venv
+WORKDIR /app
+COPY service2/app/ app/
+COPY LICENSE THIRD_PARTY.md /usr/share/licenses/msa2026-docker/
 USER 10001:10001
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/service2"]
+ENTRYPOINT ["/opt/venv/bin/python", "-m", "app.main"]

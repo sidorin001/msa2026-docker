@@ -1,25 +1,27 @@
 # msa2026-docker
 
-Учебный проект: два REST-сервиса на C++17/CMake, две PostgreSQL, pgAdmin и Caddy. Единственная опубликованная точка входа — `http://localhost:8080`.
+Учебный проект с семью контейнерами: Service1 на **C++17 / Qt / CMake**, две реплики Service2 на **Python / FastAPI**, две PostgreSQL, pgAdmin и Caddy. Обе реплики Service2 работают с **одной db2**. Внешний адрес стенда — `http://localhost:8080`.
 
 ```mermaid
 flowchart LR
-    Client[Клиент] --> G[Caddy gateway]
-    G --> S1[service1-v1: Groups API]
-    G --> S2[service2-v1: Items API]
-    G --> P[pgAdmin]
+    C[Клиент] --> G[Caddy gateway]
+    G -->|groups| S1[service1-v1: C++ / Qt]
     S1 --> D1[(db1)]
-    S2 --> D2[(db2)]
-    S1 -->|REST: items?group_id| S2
+    S1 -->|items?group_id| G
+    G -->|Round Robin: здоровые реплики| A[service2-v1-a: Python]
+    G -->|Round Robin: здоровые реплики| B[service2-v1-b: Python]
+    A --> D2[(Общая db2)]
+    B --> D2
+    G --> P[pgAdmin]
     P --> D1
     P --> D2
 ```
 
-Требования и критерии: [TASK.md](TASK.md). Реализованы только чтение и API v1. Исходники расположены в `service1/`, `service2/`; общий код подключения, JSON и HTTP — в `common/`. Каждый каталог сервиса — отдельный CMake-проект с собственным бинарником и Dockerfile; для сборки нужен также соседний `common/`.
+Требования: [TASK.md](TASK.md). Сервисы реализуют чтение API v1. Service1 владеет groups, логический Service2 — items. Исходники независимы: `service1/src/main.cpp` и `service2/app/main.py`; общего C++-кода больше нет.
 
-## Быстрый запуск
+## Запуск
 
-Нужны Docker Engine/Desktop с Linux-контейнерами и Docker Compose v2 с `--wait` (рекомендуется 2.20+). Для smoke-тестов нужен Python 3.10+. Локальные C++ и CMake не нужны. Сборке нужен интернет для образов, Debian-пакетов и закреплённых C++-зависимостей.
+Нужны Docker Engine/Desktop с Linux-контейнерами и Compose v2 с поддержкой `--wait` (рекомендуется 2.20+). Сборке нужен интернет. C++/Qt/CMake/Python для приложений устанавливаются внутри образов; Python 3.10+ на хосте нужен только для тестов.
 
 ```sh
 git clone https://github.com/sidorin001/msa2026-docker.git
@@ -27,7 +29,7 @@ cd msa2026-docker
 cp .env.example .env
 ```
 
-В PowerShell вместо `cp`: `Copy-Item .env.example .env`. Замените пять значений `CHANGE_ME_…` в `.env` разными паролями. Для первого запуска удобно использовать длинные буквенно-цифровые пароли; специальные символы должны быть корректно экранированы по правилам Compose dotenv. Не публикуйте `.env`.
+В PowerShell: `Copy-Item .env.example .env`. Замените пять паролей `CHANGE_ME_…` разными значениями. Если используются специальные символы, учитывайте правила Compose dotenv. `.env` не коммитится.
 
 ```sh
 docker compose config --quiet
@@ -36,99 +38,115 @@ docker compose ps
 python tests/smoke.py --base-url http://localhost:8080
 ```
 
-Первый запуск собирает два образа и создаёт данные. pgAdmin может запускаться дольше API; дождитесь формы входа на `http://localhost:8080/pgadmin/`.
+Образ `msa2026-service2:local` собирается один раз через `service2-v1-a`, затем используется обеими репликами. Запускайте весь Compose-проект; отдельный запуск B на чистом компьютере требует сначала сборки A. Именованные контейнеры через `container_name` не задаются; другой проект можно запустить с `docker compose -p <name>` и другим внешним портом. pgAdmin может готовиться дольше API — дождитесь формы входа.
 
 ## API
 
-| Запрос | Назначение |
+| Метод и путь | Обработчик |
 |---|---|
-| `GET /api/v1/groups` | Все группы |
-| `GET /api/v1/groups/{id}` | Группа |
-| `GET /api/v1/groups/{id}/items` | Элементы группы через Service1 → Service2 |
-| `GET /api/v1/items` | Все элементы |
-| `GET /api/v1/items/{id}` | Элемент |
-| `GET /api/v1/items?group_id={id}` | Элементы группы непосредственно через Service2 |
+| `GET /api/v1/groups` | Service1: список групп |
+| `GET /api/v1/groups/{id}` | Service1: одна группа |
+| `GET /api/v1/groups/{id}/items` | Service1 → Caddy → здоровая реплика Service2 |
+| `GET /api/v1/items` | Caddy → Service2: все элементы |
+| `GET /api/v1/items/{id}` | Caddy → Service2: один элемент |
+| `GET /api/v1/items?group_id={id}` | Caddy → Service2: фильтр по группе |
 
 ```sh
 curl http://localhost:8080/api/v1/groups
 curl http://localhost:8080/api/v1/groups/2
-curl http://localhost:8080/api/v1/groups/2/items
-curl http://localhost:8080/api/v1/items
+curl -i http://localhost:8080/api/v1/groups/2/items
+curl -i http://localhost:8080/api/v1/items
 curl http://localhost:8080/api/v1/items/3
 curl 'http://localhost:8080/api/v1/items?group_id=2'
 ```
 
-В Windows PowerShell используйте `curl.exe` вместо `curl`.
+В PowerShell используйте `curl.exe`. Заголовок `X-Service2-Instance` показывает обработавшую запрос реплику; Service1 сохраняет его при агрегировании. JSON от этого не меняется: группа `{"id":1,"name":"Group 1"}`, элемент `{"id":1,"group_id":1,"name":"Item 1"}`, списки — массивы, сортировка по ID.
 
-Ответы — JSON, списки — массивы с сортировкой по ID. Примеры: `{"id":1,"name":"Group 1"}`, `{"id":1,"group_id":1,"name":"Item 1"}`. Групп четыре, элементов десять; у групп 1–4 соответственно **2, 3, 5, 0** элементов.
+Seed: 4 группы, 10 элементов; у групп 1–4 соответственно **2 / 3 / 5 / 0** элементов. Service1 проверяет существование группы до вызова Service2. Нет группы — `404`; группа без элементов — `200 []`; прямой фильтр Items по неизвестному положительному group_id — `200 []`.
 
-Service1 сначала проверяет группу в db1, затем запрашивает Service2 по внутреннему DNS без gateway. Неизвестная группа — `404`; существующая группа без элементов — `200 []`. Service2 не знает о db1, поэтому фильтр по неизвестному положительному `group_id` возвращает `200 []`.
+Положительные 32-битные ID валидируются до SQL. Ошибки: `400` (включая стандартные случаи валидации FastAPI, вместо его 422), `404`, `405` с `Allow: GET, HEAD`; HEAD поддерживается, OPTIONS известного ресурса возвращает 405. Неизвестные query-параметры игнорируются; повторный `group_id` отклоняется. Старые `/context/`, неверсионированные пути, v2 и `groups-extra` не обслуживаются. Ошибки приложения: `{"error":{"code":"not_found","message":"Group not found"}}`.
 
-Ошибки сервисов: `{"error":{"code":"not_found","message":"Group not found"}}`. Невалидные/неположительные/переполненные 32-битные ID — `400`; отсутствующая запись/маршрут — `404`; методы POST/PUT/PATCH/DELETE/OPTIONS известного ресурса — `405` с `Allow: GET, HEAD`. HEAD поддерживается библиотекой без тела ответа. Неизвестные query-параметры игнорируются; повторный `group_id` отклоняется.
+Собственная БД недоступна — `503`; ошибка зависимости при агрегировании — `502`, собственный timeout Service1 — `504`. Caddy при отсутствии здоровых upstream возвращает собственный `502/503`, неизвестные внешние маршруты — текстовый `404`. Сбой зависимости не заменяется пустым массивом.
 
-Недоступная собственная БД или ошибка её запроса — `503`; непредвиденная ошибка приложения — `500`; недоступный Service2 или некорректный его ответ — `502`; тайм-аут зависимости — `504`. Неуспешный ответ Service2 не маскируется пустым массивом. Caddy возвращает собственные ошибки `502/503` при недоступности upstream; неизвестные внешние маршруты — текстовый `404 Not Found`. `/context/`, `/api/groups`, API v2 и совпадения вроде `groups-extra` не обслуживаются.
+## Round Robin и здоровье реплик
 
-`/health` проверяет процесс, `/ready` — только собственную БД; доступны внутри контейнера и не опубликованы gateway. Проверка: `docker compose exec service1-v1 curl -fsS http://localhost:8080/ready`.
+Caddy содержит два явных upstream: `service2-v1-a:8080`, `service2-v1-b:8080`, политику `round_robin` и независимые активные HTTP-проверки. Балансировка происходит на каждый HTTP-запрос, в том числе при keep-alive; DNS не используется как замена балансировщику. Внешний и внутренний Items-трафик использует один обработчик Caddy и общий счётчик Round Robin, поэтому во время проверки строгого чередования не должно быть других API-запросов.
 
-## Базы данных, доступ и сохранение
-
-db1 содержит `groups(id INTEGER PRIMARY KEY, name TEXT NOT NULL)`, db2 — `items(id INTEGER PRIMARY KEY, group_id INTEGER NOT NULL, name TEXT NOT NULL)` и индекс `group_id`. Идентификаторы положительные. `group_id` — логическая ссылка, обычного SQL FOREIGN KEY между отдельными экземплярами PostgreSQL нет. Согласованность демонстрационных данных обеспечивает seed; распределённые операции записи отсутствуют.
-
-Сети `db1-net` и `db2-net` внутренние: Service1 видит только свою сеть БД, Service2 — свою. Обе сети доступны pgAdmin, gateway к ним не подключён. Общая сеть `api` соединяет gateway и API-сервисы; `admin` — gateway и pgAdmin. Это ограничение связности, а не направленный HTTP firewall.
-
-App-роли имеют только CONNECT к своей БД, USAGE public и SELECT таблиц. Не имеют суперправ, CREATE, TEMP, INSERT/UPDATE/DELETE и CONNECT к служебным БД `postgres`/`template1`; административный доступ pgAdmin сохраняется через суперпользователя `postgres`. Каждый запрос создаёт отдельное RAII-соединение libpq, поэтому соединения не разделяются между потоками и восстанавливаются после перезапуска БД. SQL-параметры передаются через `PQexecParams`. Пароли ролей в init-скриптах читаются `psql \getenv` и подставляются с SQL-экранированием идентификаторов/литералов.
-
-Volumes: `db1-data`, `db2-data`, `pgadmin-data`, `caddy-data`, `caddy-config`. SQL и роли создаются **только при пустом volume**. Изменение пароля в `.env` не меняет пароль уже созданной роли и pgAdmin: измените его средствами приложения/БД либо пересоздайте одноразовый стенд. Не сбрасывайте volume с нужными данными.
-
-## Конфигурация
-
-Все параметры и демонстрационные значения перечислены в `.env.example`.
-
-| Параметры | Значения по умолчанию / смысл |
+| Настройка | Значение |
 |---|---|
-| `GATEWAY_BIND`, `GATEWAY_PORT` | `127.0.0.1`, `8080`; единственный host port |
-| `DB1_NAME`, `DB2_NAME` | `groups_db`, `items_db` |
-| `DB1_APP_USER`, `DB2_APP_USER` | `groups_app`, `items_app` |
-| `DB1_APP_PASSWORD`, `DB2_APP_PASSWORD` | Пароли ролей только для чтения |
-| `DB1_ADMIN_PASSWORD`, `DB2_ADMIN_PASSWORD` | Разные пароли `postgres` |
-| `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_DEFAULT_PASSWORD` | Учётная запись pgAdmin |
-| `SERVICE2_BASE_URL` | `http://service2-v1:8080`, HTTP origin без завершающего `/` |
-| `HTTP_CONNECT_TIMEOUT_MS`, `HTTP_READ_TIMEOUT_MS` | `2000`, `5000` |
-| `DB_CONNECT_TIMEOUT_SECONDS`, `DB_STATEMENT_TIMEOUT_MS` | `2`, `3000` |
+| readiness каждой реплики | `GET /ready`, строго HTTP 200 |
+| `health_interval` | 5 секунд |
+| `health_timeout` | 2 секунды |
+| `health_fails` | 1 неуспешная проверка исключает реплику |
+| `health_passes` | 2 последовательные успешные проверки возвращают реплику |
+| timeout Caddy → Service2 | connect 2s, response headers 5s |
+| timeout Service1 → балансировщик | connect 2s, общий deadline 10s |
+| timeout Caddy → Service1 | response headers 20s |
 
-Compose передаёт сервисам `DB_HOST`, `DB_PORT=5432`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `HTTP_PORT=8080`. API слушает `0.0.0.0` внутри контейнера, опубликован только gateway. При увеличении тайм-аутов API скорректируйте `response_header_timeout` (20s) в Caddy и HTTP healthcheck. Для демонстрации в локальной сети можно осознанно изменить `GATEWAY_BIND`; интернет-публикация требует отдельной защиты, TLS и настройки доступа.
+`/ready` выполняет запрос к db2, `/health` проверяет процесс. Оба пути доступны только внутри окружения. При одной здоровой реплике весь Items-трафик идёт ей; после успешных проверок восстановленная реплика автоматически включается без reload Caddy. Docker healthcheck полезен для запуска и диагностики, но исключение из балансировки обеспечивает именно Caddy.
 
-## pgAdmin
+Passive `fail_duration` и повторы запросов не включены: истечение таймера не возвращает неисправный экземпляр без успешной активной проверки. Между фактическим отказом и его обнаружением возможны ошибки отдельных запросов; уже начавшийся запрос не переносится автоматически. Проверки CI ожидают исключение/возврат с deadline 30 секунд. Если нездоровы обе реплики, Items API выдаёт ошибку, а Groups API продолжает работать. Общая db2 — единая зависимость двух реплик; её репликация в проект не входит.
 
-Откройте `http://localhost:8080/pgadmin/`, войдите с `PGADMIN_DEFAULT_EMAIL` / `PGADMIN_DEFAULT_PASSWORD`. В группе **MSA** зарегистрированы **DB1 — Groups** (`db1:5432`) и **DB2 — Items** (`db2:5432`). При подключении введите соответствующий `DB1_ADMIN_PASSWORD` или `DB2_ADMIN_PASSWORD`. Пароли не включены в `servers.json`. При изменении имён БД они появятся в списке Databases; maintenance DB остаётся `postgres`.
-
-Caddy удаляет внешний `/pgadmin` перед upstream и передаёт `X-Script-Name: /pgadmin` для корректных ссылок, cookies и redirects. API-префиксы сохраняются. pgAdmin работает в server mode, master password не требуется; расширенная привязка cookies к IP отключена для локального прокси. Это параметры учебного стенда.
-
-## Сборка и обслуживание
-
-Каждый Dockerfile имеет стадии build/runtime на одной версии Debian. Компилятор, CMake, libpq headers и исходники зависимостей остаются в build-stage. В runtime — бинарник, libpq runtime и curl для readiness; запуск под UID 10001, `init: true`, SIGTERM/SIGINT обрабатываются через `sigwait`, логи идут в stdout/stderr без секретов.
-
-Выбранные рекомендации ТЗ: C++17, cpp-httplib **0.18.3**, nlohmann/json **3.11.3**, PostgreSQL **17.6-bookworm**, Caddy **2.10.2-alpine**, pgAdmin **9.8**, Debian **bookworm-20250908-slim**. Архивы C++-зависимостей проверяются SHA-256. Вместо рекомендуемого libpqxx выбран официальный **libpq** с небольшой C++ RAII-обёрткой, чтобы не вводить дополнительную зависимость. Версия libpq и системных библиотек управляется Debian bookworm; apt получает доступные обновления, поэтому сборка не является побитно воспроизводимой. Это фиксированный учебный набор, не обещание актуальности security updates.
+Демонстрация (выждите обнаружение по healthcheck):
 
 ```sh
-docker compose logs -f service1-v1 service2-v1 gateway
-docker compose build service1-v1 service2-v1
-docker compose up -d --wait
-docker compose restart service1-v1
+docker compose stop service2-v1-a
+curl -i http://localhost:8080/api/v1/items
+curl -i http://localhost:8080/api/v1/groups/2/items
+docker compose start service2-v1-a
+docker compose logs --tail 50 gateway
+```
+
+После двух успешных проверок A снова получает запросы. Аналогично можно проверить B. При `pause` процесс перестаёт отвечать, и Caddy исключает его по timeout; после проверки выполните `docker compose unpause service2-v1-a`.
+
+## Технологии и Dockerfile
+
+Service1: Qt 6.4.2 из Debian bookworm, C++17, CMake ≥3.22; Qt HTTP Server обрабатывает HTTP, Qt JSON — ответы, Qt Network — асинхронный вызов балансировщика, Qt SQL/QPSQL — параметризованные запросы. Qt Concurrent выполняет блокирующие SQL-запросы в пуле из 8 потоков; каждое соединение создаётся, используется и удаляется в одном worker-потоке. Главный event loop продолжает принимать запросы. GUI и display server не требуются. Ответы ограничены 1 MiB, тайм-аут сетевого вызова конечный. SIGTERM/SIGINT обрабатываются через `sigwait` и очередь Qt.
+
+Service2: Python 3.12.8, FastAPI 0.115.6, Uvicorn 0.34.0, Psycopg 3.2.3. Все транзитивные зависимости закреплены в `service2/requirements.txt`. Синхронный обработчик выполняет DB-запросы в worker pool Starlette, не блокируя async event loop. Соединение с БД создаётся на запрос; потеря соединения не требует рестарта приложения. SQL передаётся драйверу с отдельными параметрами.
+
+Оба Dockerfile — multi-stage. Service1 собирается в build-stage на Debian `bookworm-20250908-slim`; runtime содержит Qt shared libraries, QPSQL-плагин, бинарник и curl. Service2 собирает wheels/virtualenv на `python:3.12.8-slim-bookworm`, runtime содержит интерпретатор, virtualenv, Python-код и curl. Компиляторов и CMake в runtime нет. Обе программы работают под UID 10001, Compose использует `init: true`. Логи — stdout/stderr без паролей и тел запросов.
+
+PostgreSQL `17.6-bookworm`, Caddy `2.10.2-alpine`, pgAdmin `9.8`. Это закреплённый учебный набор, а не обозначение самых новых версий. Системные пакеты получают доступные обновления Debian; побитная воспроизводимость apt не заявляется. Лицензии: [THIRD_PARTY.md](THIRD_PARTY.md), исходники проекта — [GPL-3.0-only](LICENSE), учитывая лицензию Qt HTTP Server.
+
+## БД, сети и данные
+
+db1: `groups(id INTEGER PRIMARY KEY, name TEXT NOT NULL)`. Общая db2: `items(id INTEGER PRIMARY KEY, group_id INTEGER NOT NULL, name TEXT NOT NULL)`, индекс group_id. group_id — логическая ссылка: SQL FOREIGN KEY между независимыми экземплярами PostgreSQL не создаётся. Согласованность seed детерминирована; записи API не поддерживает.
+
+App-роли имеют CONNECT только к своей БД, USAGE public и SELECT таблиц; не имеют SUPERUSER, TEMP, DDL, INSERT/UPDATE/DELETE и CONNECT к postgres/template1. PgAdmin подключается отдельным административным пользователем postgres. Пароли в init-скриптах передаются через `psql \getenv` с SQL-экранированием.
+
+Сети: `api` — Caddy, Service1 и обе реплики Service2; `admin` — Caddy/pgAdmin; `db1-net` (internal) — db1/Service1/pgAdmin; `db2-net` (internal) — db2/обе реплики Service2/pgAdmin. Gateway не имеет сети БД. На хост публикуется только gateway; прямых портов БД/реплик/pgAdmin нет.
+
+Именованные volumes сохраняют db1, db2, pgAdmin и данные Caddy. SQL-init исполняется только на пустой БД: запуск второй реплики не выполняет seed заново. Изменение паролей в `.env` не меняет уже созданные роли/pgAdmin — измените их средствами БД/приложения или пересоздайте одноразовый стенд.
+
+## Настройки и pgAdmin
+
+Все параметры: `.env.example`. Порт gateway — `GATEWAY_BIND=127.0.0.1`, `GATEWAY_PORT=8080`. DB1/DB2 имеют отдельные имена, app-пользователей и app/admin-пароли. Внутренние порты: API 8080, PostgreSQL 5432. Compose отображает значения в `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `HTTP_PORT`.
+
+`SERVICE2_BASE_URL=http://gateway:80`; `INSTANCE_ID` задаётся отдельно для A/B в Compose. `HTTP_CONNECT_TIMEOUT_MS=2000`, `HTTP_READ_TIMEOUT_MS=10000`; `DB_CONNECT_TIMEOUT_SECONDS=2`, `DB_STATEMENT_TIMEOUT_MS=3000`. Изменяя тайм-ауты, согласуйте их с Caddy и healthcheck. Для открытия стенда в локальной сети можно осознанно изменить bind; интернет-публикация требует отдельной защиты и TLS.
+
+Откройте `http://localhost:8080/pgadmin/`, войдите с `PGADMIN_DEFAULT_EMAIL` / `PGADMIN_DEFAULT_PASSWORD`. В группе MSA есть DB1 — Groups (`db1`) и DB2 — Items (`db2`): обе реплики используют именно DB2, третьего сервера БД нет. При подключении введите соответствующий DB1/DB2_ADMIN_PASSWORD. `servers.json` не содержит паролей. При нестандартных DB1_NAME/DB2_NAME нужная БД отображается в Databases; maintenance DB остаётся postgres.
+
+Caddy снимает `/pgadmin` перед upstream и передаёт `X-Script-Name: /pgadmin`, сохраняя внешние ссылки/redirects. API-префикс сохраняется. PgAdmin работает в server mode; master password не требуется, enhanced cookie protection отключена для локального прокси. Браузерный CI использует стандартную локаль `en-US`, поскольку POSIX locale runner несовместима с Intl pgAdmin 9.8.
+
+## Обслуживание и проверки
+
+```sh
+docker compose logs -f service1-v1 service2-v1-a service2-v1-b gateway
+docker compose build service1-v1 service2-v1-a
+docker compose up -d --wait --wait-timeout 180
+docker compose exec service1-v1 curl -fsS http://localhost:8080/ready
+docker compose exec service2-v1-a curl -fsS http://localhost:8080/ready
 docker compose down
 ```
 
-`down` сохраняет данные. **Следующая команда удаляет все данные БД и pgAdmin этого Compose-проекта. Выполняйте её только для полного сброса одноразового стенда:**
+`down` сохраняет данные. **Следующая команда удаляет все данные БД и pgAdmin этого проекта; только для полного сброса одноразового стенда:**
 
 ```sh
 docker compose down --volumes --remove-orphans
 docker compose up --build -d --wait --wait-timeout 180
 ```
 
-Если порт занят, измените `GATEWAY_PORT`. Если API не готов, проверьте `docker compose ps` и логи своей БД/сервиса, совпадение текущих и первоначальных паролей. Не публикуйте полный вывод `docker compose config`, `.env` и логи с секретами. Caddy можно проверить: `docker compose run --rm --no-deps gateway caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile`.
+Если порт занят, измените GATEWAY_PORT. Если API не готов — `docker compose ps`, логи БД/реплик и Caddy, проверка первоначальных паролей и доступности QPSQL. Не публикуйте `.env` и полный `docker compose config`. Для Caddy: `docker compose run --rm --no-deps gateway caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile`.
 
-## Проверки
-
-См. [tests/README.md](tests/README.md). GitHub Actions собирает оба образа, запускает окружение, проверяет API, изоляцию/права, отказ и восстановление зависимостей, сохранность volumes и pgAdmin в Chromium. В CI создаются временные случайные пароли; тесты не используют пользовательские данные. Статус запусков: [Actions](https://github.com/sidorin001/msa2026-docker/actions). Фактические результаты и ограничения: [VALIDATION.md](VALIDATION.md).
-
-Полезные первичные источники: [cpp-httplib](https://github.com/yhirose/cpp-httplib/tree/v0.18.3), [libpq: параметры запросов](https://www.postgresql.org/docs/17/libpq-exec.html), [pgAdmin за прокси](https://www.pgadmin.org/docs/pgadmin4/latest/container_deployment.html#reverse-proxying), [Caddy reverse_proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy).
+Тесты и ограничения их запуска: [tests/README.md](tests/README.md). Результаты: [VALIDATION.md](VALIDATION.md), [GitHub Actions](https://github.com/sidorin001/msa2026-docker/actions). Проверки отказов и тестовые override-файлы предназначены только для отдельного одноразового окружения.
