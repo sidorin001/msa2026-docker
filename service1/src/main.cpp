@@ -204,14 +204,14 @@ public:
 };
 }
 int main(int argc, char** argv) {
-    sigset_t signals;
-    sigemptyset(&signals); sigaddset(&signals, SIGINT); sigaddset(&signals, SIGTERM);
-    if (pthread_sigmask(SIG_BLOCK, &signals, nullptr) != 0) return 1;
+    sigset_t terminationSet;
+    sigemptyset(&terminationSet); sigaddset(&terminationSet, SIGINT); sigaddset(&terminationSet, SIGTERM);
+    if (pthread_sigmask(SIG_BLOCK, &terminationSet, nullptr) != 0) return 1;
     QCoreApplication app(argc, argv);
     try {
         Application service;
         std::thread terminator([&] {
-            int signal = 0; sigwait(&signals, &signal);
+            int signal = 0; sigwait(&terminationSet, &signal);
             QMetaObject::invokeMethod(&app, &QCoreApplication::quit, Qt::QueuedConnection);
         });
         int result = app.exec();
