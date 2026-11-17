@@ -17,7 +17,7 @@ flowchart LR
     P --> D2
 ```
 
-Требования: [TASK.md](TASK.md). Сервисы реализуют чтение API v1. Service1 владеет groups, логический Service2 — items. Исходники независимы: `service1/src/main.cpp` и `service2/app/main.py`; общего C++-кода больше нет.
+Требования: [TASK.md](TASK.md). Сервисы реализуют чтение API v1. Service1 владеет groups, логический Service2 — items. Исходники независимы: `service1/src/` и `service2/app/main.py`; общего C++-кода нет. В Service1 `main.cpp` содержит запуск и обработку завершения, а `Application`, `Client`, `Config`, `Database`, `Reply` вынесены в собственные `.h`/`.cpp`; проверки идентификаторов — в `Validation.h/.cpp`.
 
 ## Запуск
 

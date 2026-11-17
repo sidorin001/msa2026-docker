@@ -4,6 +4,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(Qt6 6.4 REQUIRED COMPONENTS Core HttpServer Network Sql Concurrent)
-add_executable(service1 src/main.cpp)
+add_executable(service1
+    src/main.cpp
+    src/Application.cpp src/Application.h
+    src/Client.cpp src/Client.h
+    src/Config.cpp src/Config.h
+    src/Database.cpp src/Database.h
+    src/Reply.cpp src/Reply.h
+    src/Validation.cpp src/Validation.h
+)
 target_link_libraries(service1 PRIVATE Qt6::Core Qt6::HttpServer Qt6::Network Qt6::Sql Qt6::Concurrent)
 target_compile_options(service1 PRIVATE -Wall -Wextra -Wpedantic)
