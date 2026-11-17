@@ -1,6 +1,6 @@
 FROM debian:bookworm-20250908-slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates cmake g++ make qt6-base-dev qt6-httpserver-dev \
+    ca-certificates cmake g++ make qt6-base-dev qt6-httpserver-dev qt6-websockets-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY service1/ service1/

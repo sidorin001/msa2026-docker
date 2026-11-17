@@ -1,5 +1,6 @@
 """Destructive acceptance for a disposable seven-container Compose environment."""
 import http.client
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import time
@@ -115,12 +116,13 @@ def main():
         compose("up", "-d", "--no-deps", "--force-recreate", *REPLICAS)
         eventually(rr, "normal replica entrypoints restored")
     # Both readiness endpoints depend on the shared DB; its failure removes both.
+    since = datetime.now(timezone.utc).isoformat()
     try:
         compose("stop", "db2")
         def no_replicas():
             status, _, _ = get()
             assert status in (502, 503)
-            logs = compose("logs", "--no-color", "--tail", "30", "gateway").stdout
+            logs = compose("logs", "--no-color", "--since", since, "gateway").stdout
             assert "no upstreams available" in logs
         eventually(no_replicas, "shared DB failure removes both replicas")
         request(BASE, "/api/v1/groups")
