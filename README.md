@@ -21,7 +21,7 @@ flowchart LR
 
 ## Запуск
 
-Нужны Docker Engine/Desktop с Linux-контейнерами и Compose v2 с поддержкой `--wait` (рекомендуется 2.20+). Сборке нужен интернет. C++/Qt/CMake/Python для приложений устанавливаются внутри образов; Python 3.10+ на хосте нужен только для тестов.
+Нужны Docker Engine/Desktop с Linux-контейнерами и Compose v2 с поддержкой `--wait` (рекомендуется 2.20+). Сборке нужен интернет. C++/Qt/CMake/Python для приложений устанавливаются внутри образов. Для отдельного `smoke.py` достаточно Python 3.6+, для полного набора тестов используйте Python 3.10+; CI проверяет Python 3.12. На Linux запускайте тесты явно через `python3`: команда `python` на старых Ubuntu может означать Python 2.7.
 
 ```sh
 git clone https://github.com/sidorin001/msa2026-docker.git
@@ -35,8 +35,27 @@ cp .env.example .env
 docker compose config --quiet
 docker compose up --build -d --wait --wait-timeout 180
 docker compose ps
-python tests/smoke.py --base-url http://localhost:8080
+python3 tests/smoke.py --base-url http://localhost:8080
 ```
+
+В Ubuntu 18.04 системный Python 3 относится к ветке 3.6. Для запуска smoke-теста установите его рядом с Python 2, не заменяя системный `/usr/bin/python`:
+
+```sh
+sudo apt update
+sudo apt install python3
+python3 --version
+python3 tests/smoke.py --base-url http://localhost:8080
+```
+
+В shell от root команды `sudo` не нужны. Если хотите использовать краткое имя в текущем интерактивном Bash: `alias python=python3`. Это не меняет системный интерпретатор. В Windows, где установлен Python 3, можно использовать `py -3 tests/smoke.py --base-url http://localhost:8080`.
+
+Для smoke-теста без установки Python на Linux-хост доступен контейнерный вариант (стенд должен быть запущен):
+
+```sh
+docker run --rm --network host -v "$PWD:/workspace:ro" -w /workspace python:3.12.8-slim-bookworm python3 tests/smoke.py --base-url http://localhost:8080
+```
+
+`--network host` здесь рассчитан на Docker Engine в Linux. Версия Python внутри Service2 уже задана его образом и не зависит от Python на хосте. Справка Ubuntu: [версии Python по выпускам](https://ubuntu.com/developers/docs/reference/availability/python/), [работа с системным Python](https://documentation.ubuntu.com/ubuntu-for-developers/howto/python-setup/).
 
 Образ `msa2026-service2:local` собирается один раз через `service2-v1-a`, затем используется обеими репликами. Запускайте весь Compose-проект; отдельный запуск B на чистом компьютере требует сначала сборки A. Именованные контейнеры через `container_name` не задаются; другой проект можно запустить с `docker compose -p <name>` и другим внешним портом. pgAdmin может готовиться дольше API — дождитесь формы входа.
 
