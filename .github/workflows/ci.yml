@@ -39,6 +39,8 @@ jobs:
         run: docker compose up -d --wait --wait-timeout 180
       - name: API and lifecycle acceptance
         run: python tests/integration.py
+      - name: Qt HTTP response acceptance
+        run: python tests/http_response.py
       - name: Replica balancing and readiness acceptance
         run: python tests/replicas.py
       - name: Install browser test dependencies

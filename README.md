@@ -129,6 +129,8 @@ clang-format-18 --dry-run --Werror service1/src/*.h service1/src/*.cpp
 
 При установке через `python3 -m pip install clang-format==18.1.8` команда называется `clang-format` без суффикса `-18`.
 
+HTTP-ответы Service1 создаются как `QHttpServerResponse` (преобразование `Reply::toHttpResponse`) и отправляются штатными средствами Qt. `Client` хранит контекст ответа; ручной записи status line, отдельных wire-заголовков и тела нет. Для HEAD на Qt 6.4 используется QBuffer в позиции EOF: QHttpServerResponder сам формирует заголовки с размером GET-представления и не отправляет тело. Исходящие запросы к Service2 выполняются `QNetworkRequest`/`QNetworkAccessManager`, ответы читаются из `QNetworkReply`.
+
 Service1: Qt 6.4.2 из Debian bookworm, C++17, CMake ≥3.22; Qt HTTP Server обрабатывает HTTP, Qt JSON — ответы, Qt Network — асинхронный вызов балансировщика, Qt SQL/QPSQL — параметризованные запросы. Qt Concurrent выполняет блокирующие SQL-запросы в пуле из 8 потоков; каждое соединение создаётся, используется и удаляется в одном worker-потоке. Главный event loop продолжает принимать запросы. GUI и display server не требуются. Ответы ограничены 1 MiB, тайм-аут сетевого вызова конечный. SIGTERM/SIGINT обрабатываются через `sigwait` и очередь Qt.
 
 Service2: Python 3.12.8, FastAPI 0.115.6, Uvicorn 0.34.0, Psycopg 3.2.3. Все транзитивные зависимости закреплены в `service2/requirements.txt`. Синхронный обработчик выполняет DB-запросы в worker pool Starlette, не блокируя async event loop. Соединение с БД создаётся на запрос; потеря соединения не требует рестарта приложения. SQL передаётся драйверу с отдельными параметрами.
